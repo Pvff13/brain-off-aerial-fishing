@@ -16,6 +16,9 @@ about to vanish.
 This is an overlay-only plugin: it observes NPCs and draws on top of the scene. It never
 clicks, moves the mouse, or interacts with anything.
 
+It can also separately remind you to reboost Fishing and/or Hunter - see
+[Reboost reminders](#reboost-reminders) below.
+
 ## Features
 
 - Tracks every regular and frenzied fishing spot around you and ranks them by zone, with
@@ -68,3 +71,43 @@ so any spots already on Lake Molch when you log in (or when you enable the plugi
 treated as tied with each other for "oldest" - their relative order between themselves is
 arbitrary, though they'll still correctly tie-break as older than anything that spawns
 afterwards.
+
+## Reboost reminders
+
+Separate from the fishing spot highlighter above, this plugin can remind you to reboost
+Fishing and/or Hunter once your current boost on that skill (how many levels above your
+base level you currently are) drops below a threshold you set. Fishing and Hunter are
+independent settings with their own toggle, threshold, and colour, since people boost each
+skill differently. Both are off by default.
+
+Each reminder only ever shows up while you're actually wearing the
+[Cormorant's glove](https://oldschool.runescape.wiki/w/Cormorant%27s_glove) (i.e. actually
+aerial fishing) - it never nags you about Fishing/Hunter boosts while you're off doing
+something unrelated elsewhere in the game.
+
+Two independent display options, both on by default once a reminder is enabled:
+
+- **Infobox** - pick a style: **Icon + boost margin** shows the usual small infobox with the
+  skill's icon and your current boost margin (e.g. "+1"), with your custom text as its
+  tooltip; **Custom text** shows a proper panel instead (an infobox that size isn't built to
+  hold a sentence), with your custom text on the left and the boost margin on the right,
+  both always visible with no hovering needed for either
+- **Highlight boost items** - highlights anything in your inventory or worn that can
+  reboost that skill, in a colour you choose
+
+The full list of items each reminder recognises (transcribed from every source listed on
+the wiki's [Temporary skill boost](https://oldschool.runescape.wiki/w/Temporary_skill_boost)
+page, as of 2026-09-09):
+
+- **Fishing**: Fishing potion, Super fishing potion, Fishing cape (untrimmed/trimmed),
+  Barnacle blaster, Trawler's trust, Dragon/Infernal/Crystal harpoon (via their
+  "Fishstabber" special attack), Fishing mix, Fish pie, Bottle of fishtongue tonic,
+  Admiral pie
+- **Hunter**: Hunter potion, Super hunter potion, Hunter cape (untrimmed/trimmed),
+  Blackbird red, Sailor's mirage, Trapper's tipple, Hunting mix
+
+Two sources from that wiki page are deliberately left out: Spicy stew (every spice colour
+shares one item id, and the effect is a random +0-5 that can just as easily be a drain, so
+an inventory Spicy stew can't be identified as "a Fishing/Hunter booster"), and the
+"invisible" boosts from the Fishing Guild and Horn of Plenty (documented as only affecting
+success-rate rolls, never the visible boosted level this feature actually watches).

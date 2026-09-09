@@ -12,19 +12,29 @@ import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.ItemContainer;
 import net.runelite.api.NPC;
 import net.runelite.api.Player;
+import net.runelite.api.Skill;
 import net.runelite.api.WorldView;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.NpcDespawned;
 import net.runelite.api.events.NpcSpawned;
+import net.runelite.api.events.StatChanged;
+import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.gameval.SpriteID;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.game.SpriteManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
 
 /**
  * Highlights the aerial fishing spot the player can catch from soonest, at Lake Molch,
@@ -44,6 +54,14 @@ import net.runelite.client.ui.overlay.OverlayManager;
  * the cormorant could get there and catch - is ranked behind every spot that would survive
  * it, so the highlight moves on to the next best option instead of sending you to a spot
  * that's probably about to disappear. See {@link #getRankedSpots}.
+ * <p>
+ * Separately (and independently toggled - see {@link AerialFishingHighlighterConfig}), this
+ * plugin can also remind you to reboost Fishing and/or Hunter once your current boost on
+ * that skill drops below a threshold you set, via an infobox and/or by highlighting any
+ * reboosting item you're carrying or wearing (see {@link AerialFishingBoostItems}). Both
+ * reminders only ever show up while you're actually aerial fishing (wearing the Cormorant's
+ * glove - see {@link #isWearingCormorantsGlove}), never while doing something unrelated
+ * elsewhere in the game.
  * <p>
  * Overlay-only: this plugin never clicks, moves the mouse, or interacts with anything. It
  * only subscribes to NPC/tick/game-state events and draws on top of the scene.
@@ -91,8 +109,21 @@ public class AerialFishingHighlighterPlugin extends Plugin
 	static final int MIN_LIFESPAN_TICKS = 10;
 	static final int MAX_LIFESPAN_TICKS = 19;
 
+	/**
+	 * https://oldschool.runescape.wiki/w/Cormorant%27s_glove - worn in the weapon slot while
+	 * aerial fishing; morphs between these two ids depending on whether the cormorant is
+	 * currently out on a catch. Either one equipped is used as "the player is actually aerial
+	 * fishing right now", to gate the boost reminders below - see
+	 * {@link #isWearingCormorantsGlove}.
+	 */
+	static final int CORMORANTS_GLOVE_NO_BIRD = 22816;
+	static final int CORMORANTS_GLOVE_BIRD = 22817;
+
 	@Inject
 	private Client client;
+
+	@Inject
+	private ClientThread clientThread;
 
 	@Inject
 	private OverlayManager overlayManager;
@@ -101,15 +132,42 @@ public class AerialFishingHighlighterPlugin extends Plugin
 	private AerialFishingHighlighterOverlay overlay;
 
 	@Inject
+	private AerialFishingBoostItemOverlay boostItemOverlay;
+
+	@Inject
+	private AerialFishingBoostTextOverlay boostTextOverlay;
+
+	@Inject
 	private AerialFishingHighlighterConfig config;
+
+	@Inject
+	private InfoBoxManager infoBoxManager;
+
+	@Inject
+	private SpriteManager spriteManager;
 
 	private final Map<NPC, AerialFishingSpot> spots = new LinkedHashMap<>();
 
 	private boolean needsReconciliation;
 
+	private boolean fishingReboostNeeded;
+	private boolean hunterReboostNeeded;
+	private AerialFishingBoostInfoBox fishingBoostInfoBox;
+	private AerialFishingBoostInfoBox hunterBoostInfoBox;
+
 	Collection<AerialFishingSpot> getSpots()
 	{
 		return spots.values();
+	}
+
+	boolean isFishingReboostNeeded()
+	{
+		return fishingReboostNeeded;
+	}
+
+	boolean isHunterReboostNeeded()
+	{
+		return hunterReboostNeeded;
 	}
 
 	@Provides
@@ -122,18 +180,28 @@ public class AerialFishingHighlighterPlugin extends Plugin
 	protected void startUp()
 	{
 		overlayManager.add(overlay);
+		overlayManager.add(boostItemOverlay);
+		overlayManager.add(boostTextOverlay);
 		spots.clear();
 		// Spots may already be sitting on Lake Molch from before the plugin was enabled -
 		// we can't know how long they've been there, so they're reconciled in on the next
 		// tick rather than assumed to have just spawned. See AerialFishingSpot's javadoc.
 		needsReconciliation = true;
+		refreshFishingReboost();
+		refreshHunterReboost();
 	}
 
 	@Override
 	protected void shutDown()
 	{
 		overlayManager.remove(overlay);
+		overlayManager.remove(boostItemOverlay);
+		overlayManager.remove(boostTextOverlay);
 		spots.clear();
+		clearFishingBoostInfoBox();
+		clearHunterBoostInfoBox();
+		fishingReboostNeeded = false;
+		hunterReboostNeeded = false;
 	}
 
 	@Subscribe
@@ -143,6 +211,10 @@ public class AerialFishingHighlighterPlugin extends Plugin
 		if (state == GameState.LOGIN_SCREEN || state == GameState.HOPPING || state == GameState.CONNECTION_LOST)
 		{
 			spots.clear();
+			clearFishingBoostInfoBox();
+			clearHunterBoostInfoBox();
+			fishingReboostNeeded = false;
+			hunterReboostNeeded = false;
 		}
 		else if (state == GameState.LOGGED_IN)
 		{
@@ -169,6 +241,159 @@ public class AerialFishingHighlighterPlugin extends Plugin
 		{
 			reconcileExistingSpots();
 			needsReconciliation = false;
+		}
+	}
+
+	@Subscribe
+	public void onStatChanged(StatChanged event)
+	{
+		Skill skill = event.getSkill();
+		if (skill == Skill.FISHING)
+		{
+			refreshFishingReboost();
+		}
+		else if (skill == Skill.HUNTER)
+		{
+			refreshHunterReboost();
+		}
+	}
+
+	@Subscribe
+	public void onConfigChanged(ConfigChanged event)
+	{
+		if (!"aerialfishinghighlighter".equals(event.getGroup()))
+		{
+			return;
+		}
+
+		// ConfigChanged is fired from the settings panel on the Swing EDT, not the client
+		// thread - reading Client state (isWearingCormorantsGlove, getBoostedSkillLevel,
+		// etc.) directly here is unsafe and was observed leaving the item highlight stuck
+		// off after toggling/editing a reminder, until a genuine client-thread event (e.g.
+		// actually catching a fish) came along and recomputed it correctly. Marshalling
+		// onto the client thread fixes that.
+		clientThread.invoke(() ->
+		{
+			// Force both infoboxes to be torn down and, if still warranted, rebuilt from
+			// scratch - covers toggling a reminder on/off, changing its threshold, and
+			// editing its tooltip text (which otherwise wouldn't apply until the infobox
+			// next disappeared and reappeared on its own) without waiting for a real skill
+			// change.
+			clearFishingBoostInfoBox();
+			clearHunterBoostInfoBox();
+			refreshFishingReboost();
+			refreshHunterReboost();
+		});
+	}
+
+	@Subscribe
+	public void onItemContainerChanged(ItemContainerChanged event)
+	{
+		if (event.getContainerId() != InventoryID.WORN)
+		{
+			return;
+		}
+
+		// Covers putting on/taking off the Cormorant's glove without having to wait for the
+		// next real change to Fishing/Hunter itself.
+		refreshFishingReboost();
+		refreshHunterReboost();
+	}
+
+	/**
+	 * @return whether the player currently has the Cormorant's glove equipped - see
+	 * {@link #CORMORANTS_GLOVE_NO_BIRD}. Both boost reminders are gated on this so they only
+	 * ever show up while actually aerial fishing, per explicit user request, rather than
+	 * nagging about Fishing/Hunter boosts no matter what else the player is doing.
+	 */
+	private boolean isWearingCormorantsGlove()
+	{
+		ItemContainer equipment = client.getItemContainer(InventoryID.WORN);
+		return equipment != null
+			&& (equipment.contains(CORMORANTS_GLOVE_NO_BIRD) || equipment.contains(CORMORANTS_GLOVE_BIRD));
+	}
+
+	private void refreshFishingReboost()
+	{
+		if (client.getLocalPlayer() == null || !config.fishingReboostEnabled() || !isWearingCormorantsGlove())
+		{
+			fishingReboostNeeded = false;
+			clearFishingBoostInfoBox();
+			return;
+		}
+
+		fishingReboostNeeded = getFishingBoostMargin() < config.fishingReboostThreshold();
+
+		if (fishingReboostNeeded && config.fishingReboostInfobox()
+			&& config.fishingReboostInfoboxStyle() == AerialFishingBoostInfoboxStyle.MARGIN)
+		{
+			if (fishingBoostInfoBox == null)
+			{
+				fishingBoostInfoBox = new AerialFishingBoostInfoBox(null, this,
+					() -> "+" + getFishingBoostMargin(), config::fishingReboostText);
+				infoBoxManager.addInfoBox(fishingBoostInfoBox);
+				spriteManager.getSpriteAsync(SpriteID.Staticons.FISHING, 0, fishingBoostInfoBox);
+			}
+		}
+		else
+		{
+			clearFishingBoostInfoBox();
+		}
+	}
+
+	private void refreshHunterReboost()
+	{
+		if (client.getLocalPlayer() == null || !config.hunterReboostEnabled() || !isWearingCormorantsGlove())
+		{
+			hunterReboostNeeded = false;
+			clearHunterBoostInfoBox();
+			return;
+		}
+
+		hunterReboostNeeded = getHunterBoostMargin() < config.hunterReboostThreshold();
+
+		if (hunterReboostNeeded && config.hunterReboostInfobox()
+			&& config.hunterReboostInfoboxStyle() == AerialFishingBoostInfoboxStyle.MARGIN)
+		{
+			if (hunterBoostInfoBox == null)
+			{
+				hunterBoostInfoBox = new AerialFishingBoostInfoBox(null, this,
+					() -> "+" + getHunterBoostMargin(), config::hunterReboostText);
+				infoBoxManager.addInfoBox(hunterBoostInfoBox);
+				spriteManager.getSpriteAsync(SpriteID.Staticons2.HUNTER, 0, hunterBoostInfoBox);
+			}
+		}
+		else
+		{
+			clearHunterBoostInfoBox();
+		}
+	}
+
+	int getFishingBoostMargin()
+	{
+		return client.getBoostedSkillLevel(Skill.FISHING) - client.getRealSkillLevel(Skill.FISHING);
+	}
+
+	int getHunterBoostMargin()
+	{
+		return client.getBoostedSkillLevel(Skill.HUNTER) - client.getRealSkillLevel(Skill.HUNTER);
+	}
+
+	private void clearFishingBoostInfoBox()
+	{
+		if (fishingBoostInfoBox != null)
+		{
+			infoBoxManager.removeInfoBox(fishingBoostInfoBox);
+			fishingBoostInfoBox = null;
+		}
+	}
+
+	private void clearHunterBoostInfoBox()
+	{
+		if (hunterBoostInfoBox != null)
+		{
+			infoBoxManager.removeInfoBox(hunterBoostInfoBox);
+			hunterBoostInfoBox = null;
 		}
 	}
 

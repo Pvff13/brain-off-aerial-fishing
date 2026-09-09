@@ -4,6 +4,7 @@ import java.awt.Color;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
+import net.runelite.client.config.ConfigSection;
 import net.runelite.client.config.Range;
 
 @ConfigGroup("aerialfishinghighlighter")
@@ -162,5 +163,191 @@ public interface AerialFishingHighlighterConfig extends Config
 	default boolean fillClickbox()
 	{
 		return false;
+	}
+
+	@ConfigSection(
+		name = "Fishing reboost reminder",
+		description = "Reminds you to reboost Fishing when your current boost drops low",
+		position = 14,
+		closedByDefault = false
+	)
+	String fishingReboostSection = "fishingReboostSection";
+
+	@ConfigItem(
+		position = 0,
+		keyName = "fishingReboostEnabled",
+		name = "Enable reminder",
+		description = "Remind you to reboost Fishing once your current boost drops below the threshold below. Only shows up while you're wearing the Cormorant's glove (i.e. actually aerial fishing), never otherwise. Off by default - this is a separate feature from the fishing spot highlighter above",
+		section = "fishingReboostSection"
+	)
+	default boolean fishingReboostEnabled()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		position = 1,
+		keyName = "fishingReboostThreshold",
+		name = "Remind below",
+		description = "Remind you once your Fishing boost (how many levels above your base level you currently are) drops below this. 6 is the maximum Fishing boost possible",
+		section = "fishingReboostSection"
+	)
+	@Range(min = 0, max = 6)
+	default int fishingReboostThreshold()
+	{
+		return 3;
+	}
+
+	@ConfigItem(
+		position = 2,
+		keyName = "fishingReboostInfobox",
+		name = "Show infobox",
+		description = "Show a reminder infobox while your Fishing boost is below the threshold",
+		section = "fishingReboostSection"
+	)
+	default boolean fishingReboostInfobox()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		position = 3,
+		keyName = "fishingReboostHighlightItems",
+		name = "Highlight boost items",
+		description = "Highlight anything in your inventory or worn that can reboost Fishing (potions, capes, harpoons, pies, mixes - see the README for the full list), while your Fishing boost is below the threshold",
+		section = "fishingReboostSection"
+	)
+	default boolean fishingReboostHighlightItems()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		position = 4,
+		keyName = "fishingReboostHighlightColor",
+		name = "Highlight colour",
+		description = "Highlight colour used for Fishing-reboosting items",
+		section = "fishingReboostSection"
+	)
+	default Color fishingReboostHighlightColor()
+	{
+		return new Color(0, 200, 255, 160);
+	}
+
+	@ConfigItem(
+		position = 5,
+		keyName = "fishingReboostInfoboxStyle",
+		name = "Infobox style",
+		description = "What the Fishing reminder infobox shows as its main, always-visible label. Either way, hovering it shows the other piece of information as a tooltip",
+		section = "fishingReboostSection"
+	)
+	default AerialFishingBoostInfoboxStyle fishingReboostInfoboxStyle()
+	{
+		return AerialFishingBoostInfoboxStyle.MARGIN;
+	}
+
+	@ConfigItem(
+		position = 6,
+		keyName = "fishingReboostText",
+		name = "Custom text",
+		description = "Used as the infobox's main visible label when the style above is set to \"Custom text\" - otherwise it's just the tooltip you get from hovering the icon. Infoboxes are small, so keep this short",
+		section = "fishingReboostSection"
+	)
+	default String fishingReboostText()
+	{
+		return "Fishing boost is low - reboost!";
+	}
+
+	@ConfigSection(
+		name = "Hunter reboost reminder",
+		description = "Reminds you to reboost Hunter when your current boost drops low",
+		position = 15,
+		closedByDefault = false
+	)
+	String hunterReboostSection = "hunterReboostSection";
+
+	@ConfigItem(
+		position = 0,
+		keyName = "hunterReboostEnabled",
+		name = "Enable reminder",
+		description = "Remind you to reboost Hunter once your current boost drops below the threshold below. Only shows up while you're wearing the Cormorant's glove (i.e. actually aerial fishing), never otherwise. Off by default - this is a separate feature from the fishing spot highlighter above",
+		section = "hunterReboostSection"
+	)
+	default boolean hunterReboostEnabled()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		position = 1,
+		keyName = "hunterReboostThreshold",
+		name = "Remind below",
+		description = "Remind you once your Hunter boost (how many levels above your base level you currently are) drops below this. 6 is the maximum Hunter boost possible",
+		section = "hunterReboostSection"
+	)
+	@Range(min = 0, max = 6)
+	default int hunterReboostThreshold()
+	{
+		return 3;
+	}
+
+	@ConfigItem(
+		position = 2,
+		keyName = "hunterReboostInfobox",
+		name = "Show infobox",
+		description = "Show a reminder infobox while your Hunter boost is below the threshold",
+		section = "hunterReboostSection"
+	)
+	default boolean hunterReboostInfobox()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		position = 3,
+		keyName = "hunterReboostHighlightItems",
+		name = "Highlight boost items",
+		description = "Highlight anything in your inventory or worn that can reboost Hunter (potions, capes, drinks, mixes - see the README for the full list), while your Hunter boost is below the threshold",
+		section = "hunterReboostSection"
+	)
+	default boolean hunterReboostHighlightItems()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		position = 4,
+		keyName = "hunterReboostHighlightColor",
+		name = "Highlight colour",
+		description = "Highlight colour used for Hunter-reboosting items",
+		section = "hunterReboostSection"
+	)
+	default Color hunterReboostHighlightColor()
+	{
+		return new Color(255, 0, 200, 160);
+	}
+
+	@ConfigItem(
+		position = 5,
+		keyName = "hunterReboostInfoboxStyle",
+		name = "Infobox style",
+		description = "What the Hunter reminder infobox shows as its main, always-visible label. Either way, hovering it shows the other piece of information as a tooltip",
+		section = "hunterReboostSection"
+	)
+	default AerialFishingBoostInfoboxStyle hunterReboostInfoboxStyle()
+	{
+		return AerialFishingBoostInfoboxStyle.MARGIN;
+	}
+
+	@ConfigItem(
+		position = 6,
+		keyName = "hunterReboostText",
+		name = "Custom text",
+		description = "Used as the infobox's main visible label when the style above is set to \"Custom text\" - otherwise it's just the tooltip you get from hovering the icon. Infoboxes are small, so keep this short",
+		section = "hunterReboostSection"
+	)
+	default String hunterReboostText()
+	{
+		return "Hunter boost is low - reboost!";
 	}
 }
