@@ -1,0 +1,70 @@
+# Brain off Aerial Fishing
+
+Highlights the aerial fishing spot (Lake Molch) you can catch from soonest, ranked by zone
+rather than raw tile distance - a spot 3 tiles away is exactly as good as one 4 tiles away,
+since both fall in the same "2 tick" zone. Frenzied spots are always ranked as the 3-tick
+zone regardless of their real distance, since their catch cycle is a flat 3 ticks once
+reached: a 1- or 2-tick spot still wins over a frenzied spot, but a frenzied spot wins over
+a plain 3-tick spot. Whenever two spots are tied after all of that, the one that's been
+around the longest is highlighted instead, since it's the one closest to disappearing.
+
+A spot that's estimated not to survive the round trip - i.e. it'd probably despawn before
+the cormorant could get there and catch - drops behind every spot that would survive it, so
+the highlight moves on to the next best option rather than sending you somewhere that's
+about to vanish.
+
+This is an overlay-only plugin: it observes NPCs and draws on top of the scene. It never
+clicks, moves the mouse, or interacts with anything.
+
+## Features
+
+- Tracks every regular and frenzied fishing spot around you and ranks them by zone, with
+  frenzied spots slotted into the shared 3-tick zone and oldest-first as the final
+  tie-breaker
+- Highlights the best spot to fish next, with optional highlighting of the 2nd and 3rd best
+  too - each with its own colour
+- Skips over a spot that's estimated to despawn before you could catch from it, moving the
+  highlight to the next viable option instead
+- Optional travel-ticks readout above each highlighted spot
+- Optional estimated-time-left countdown above each highlighted spot, which turns red once
+  the spot's been up for 10+ ticks (the low end of its observed lifespan - it could
+  realistically be gone already), and can be worded as "~7 ticks left" or just "~7"
+- Adjustable assumed lifespan (10-19 ticks) driving both that countdown and the
+  survives-the-round-trip check
+- Optional faint outline on every other tracked spot, so you can see the full picture
+- Toggle for whether frenzied spots are eligible to be picked at all
+- Customisable colours, with an option to fill each spot's whole clickbox in its colour
+  instead of just outlining it
+
+## Notes on tick timing
+
+The tile-distance-to-zone breakpoints (as observed in-game) are: 1-2 tiles away = 1 tick,
+3-4 tiles = 2 ticks, 5 tiles = 3 ticks, 6-7 tiles = 4 ticks, 8-9 tiles = 5 ticks, and it
+caps at 6 ticks for anything further - it doesn't keep climbing indefinitely. Frenzied
+spots ignore this table entirely and are always treated as the 3-tick zone.
+
+## Notes on the lifespan estimate
+
+A fishing spot's actual lifespan isn't documented on the wiki and isn't directly observable
+(there's no visible countdown in-game). It's been observed staying up anywhere from 10 to
+19 ticks, per the [aerial-fishing-timers](https://github.com/call-me-maple/aerial-fishing-timers)
+plugin, which was built specifically to time this. Both the "estimated time left" readout
+and the "will it survive the round trip" check are built on a single assumed value within
+that range (14 by default, adjustable in settings) - raise it for a more optimistic
+estimate, lower it for a more cautious one. Either way, treat this as a rough, best-effort
+estimate rather than an exact timer - a spot's real lifespan is randomised per spawn and
+can't be known in advance. As a secondary warning independent of that setting, the
+countdown text turns red once 10 ticks (the low end of the range) have actually elapsed,
+since the spot could realistically already be gone by then.
+
+## Configuration
+
+All colours and toggles are configurable from the plugin's settings panel.
+
+## Notes on "oldest"
+
+There's no way to observe a spot's true spawn time before this plugin starts watching it,
+so any spots already on Lake Molch when you log in (or when you enable the plugin) are
+treated as tied with each other for "oldest" - their relative order between themselves is
+arbitrary, though they'll still correctly tie-break as older than anything that spawns
+afterwards.
