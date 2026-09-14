@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.ItemContainer;
@@ -57,11 +58,12 @@ import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
  * <p>
  * Separately (and independently toggled - see {@link AerialFishingHighlighterConfig}), this
  * plugin can also remind you to reboost Fishing and/or Hunter once your current boost on
- * that skill drops below a threshold you set, via an infobox and/or by highlighting any
- * reboosting item you're carrying or wearing (see {@link AerialFishingBoostItems}). Both
- * reminders only ever show up while you're actually aerial fishing (wearing the Cormorant's
- * glove - see {@link #isWearingCormorantsGlove}), never while doing something unrelated
- * elsewhere in the game.
+ * that skill drops below a threshold you set, via an infobox, a one-off chat message the
+ * moment it crosses the threshold, and/or by highlighting any reboosting item you're
+ * carrying or wearing (see {@link AerialFishingBoostItems}). Both reminders only ever show
+ * up while you're actually aerial fishing (wearing the Cormorant's glove - see
+ * {@link #isWearingCormorantsGlove}), never while doing something unrelated elsewhere in
+ * the game.
  * <p>
  * Overlay-only: this plugin never clicks, moves the mouse, or interacts with anything. It
  * only subscribes to NPC/tick/game-state events and draws on top of the scene.
@@ -110,6 +112,14 @@ public class AerialFishingHighlighterPlugin extends Plugin
 	static final int MAX_LIFESPAN_TICKS = 19;
 
 	/**
+	 * Unlike a regular spot's randomised 10-19 tick lifespan, a frenzied spot's lifespan is
+	 * fixed at 28 ticks - used both for {@link AerialFishingHighlighterConfig#showFrenziedTimer}
+	 * and, unconditionally, in {@link #estimatedTicksRemaining} so the survives-the-round-trip
+	 * ranking check is accurate for frenzied spots regardless of that display toggle.
+	 */
+	static final int FRENZIED_LIFESPAN_TICKS = 28;
+
+	/**
 	 * https://oldschool.runescape.wiki/w/Cormorant%27s_glove - worn in the weapon slot while
 	 * aerial fishing; morphs between these two ids depending on whether the cormorant is
 	 * currently out on a catch. Either one equipped is used as "the player is actually aerial
@@ -152,6 +162,12 @@ public class AerialFishingHighlighterPlugin extends Plugin
 
 	private boolean fishingReboostNeeded;
 	private boolean hunterReboostNeeded;
+	// Tracks the previous refresh's outcome purely to detect the "just crossed below the
+	// threshold" edge for the chat message - reset to false whenever the reminder is
+	// disabled/ungloved (see the early-return branches below), so re-enabling while still
+	// low sends a fresh message rather than staying silent because it was "already needed".
+	private boolean fishingReboostNeededPrev;
+	private boolean hunterReboostNeededPrev;
 	private AerialFishingBoostInfoBox fishingBoostInfoBox;
 	private AerialFishingBoostInfoBox hunterBoostInfoBox;
 
@@ -202,6 +218,8 @@ public class AerialFishingHighlighterPlugin extends Plugin
 		clearHunterBoostInfoBox();
 		fishingReboostNeeded = false;
 		hunterReboostNeeded = false;
+		fishingReboostNeededPrev = false;
+		hunterReboostNeededPrev = false;
 	}
 
 	@Subscribe
@@ -215,6 +233,8 @@ public class AerialFishingHighlighterPlugin extends Plugin
 			clearHunterBoostInfoBox();
 			fishingReboostNeeded = false;
 			hunterReboostNeeded = false;
+			fishingReboostNeededPrev = false;
+			hunterReboostNeededPrev = false;
 		}
 		else if (state == GameState.LOGGED_IN)
 		{
@@ -318,11 +338,19 @@ public class AerialFishingHighlighterPlugin extends Plugin
 		if (client.getLocalPlayer() == null || !config.fishingReboostEnabled() || !isWearingCormorantsGlove())
 		{
 			fishingReboostNeeded = false;
+			fishingReboostNeededPrev = false;
 			clearFishingBoostInfoBox();
 			return;
 		}
 
+		boolean wasNeeded = fishingReboostNeededPrev;
 		fishingReboostNeeded = getFishingBoostMargin() < config.fishingReboostThreshold();
+		fishingReboostNeededPrev = fishingReboostNeeded;
+
+		if (fishingReboostNeeded && !wasNeeded && config.fishingReboostChatMessage())
+		{
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", config.fishingReboostText(), null);
+		}
 
 		if (fishingReboostNeeded && config.fishingReboostInfobox()
 			&& config.fishingReboostInfoboxStyle() == AerialFishingBoostInfoboxStyle.MARGIN)
@@ -346,11 +374,19 @@ public class AerialFishingHighlighterPlugin extends Plugin
 		if (client.getLocalPlayer() == null || !config.hunterReboostEnabled() || !isWearingCormorantsGlove())
 		{
 			hunterReboostNeeded = false;
+			hunterReboostNeededPrev = false;
 			clearHunterBoostInfoBox();
 			return;
 		}
 
+		boolean wasNeeded = hunterReboostNeededPrev;
 		hunterReboostNeeded = getHunterBoostMargin() < config.hunterReboostThreshold();
+		hunterReboostNeededPrev = hunterReboostNeeded;
+
+		if (hunterReboostNeeded && !wasNeeded && config.hunterReboostChatMessage())
+		{
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", config.hunterReboostText(), null);
+		}
 
 		if (hunterReboostNeeded && config.hunterReboostInfobox()
 			&& config.hunterReboostInfoboxStyle() == AerialFishingBoostInfoboxStyle.MARGIN)
@@ -445,16 +481,17 @@ public class AerialFishingHighlighterPlugin extends Plugin
 	}
 
 	/**
-	 * Estimates how many more ticks a spot is likely to stick around, assuming it lives for
-	 * {@link AerialFishingHighlighterConfig#assumedLifespanTicks} - the estimate can't be
-	 * exact since the true lifespan is random and unobservable in advance (see
-	 * {@link #MIN_LIFESPAN_TICKS}). Never negative: a spot estimated to already be overdue
-	 * simply reads as 0 remaining.
+	 * Estimates how many more ticks a spot is likely to stick around. Frenzied spots use
+	 * their known fixed {@link #FRENZIED_LIFESPAN_TICKS}; regular spots fall back to
+	 * {@link AerialFishingHighlighterConfig#assumedLifespanTicks}, since their true lifespan
+	 * is random and unobservable in advance (see {@link #MIN_LIFESPAN_TICKS}). Never
+	 * negative: a spot estimated to already be overdue simply reads as 0 remaining.
 	 */
 	int estimatedTicksRemaining(AerialFishingSpot spot, int currentTick)
 	{
 		int elapsed = currentTick - spot.getSpawnTick();
-		return Math.max(0, config.assumedLifespanTicks() - elapsed);
+		int assumedLifespan = spot.isFrenzied() ? FRENZIED_LIFESPAN_TICKS : config.assumedLifespanTicks();
+		return Math.max(0, assumedLifespan - elapsed);
 	}
 
 	/**

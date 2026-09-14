@@ -34,6 +34,13 @@ It can also separately remind you to reboost Fishing and/or Hunter - see
   realistically be gone already), and can be worded as "~7 ticks left" or just "~7"
 - Adjustable assumed lifespan (10-19 ticks) driving both that countdown and the
   survives-the-round-trip check
+- Separate "Show frenzied spot timer" toggle for frenzied spots specifically, since their
+  lifespan is a known fixed 28 ticks rather than a randomised range - shown independently of
+  the general countdown above, and always used (regardless of that toggle) for the
+  survives-the-round-trip check on frenzied spots
+- "Always show frenzied spots" toggle to keep every tracked frenzied spot visible (hull plus
+  any enabled ticks/timer text) at all times, even when it isn't your best, 2nd, or 3rd best
+  pick right now - useful for keeping an eye on one while you fish something closer instead
 - Optional faint outline on every other tracked spot, so you can see the full picture
 - Toggle for whether frenzied spots are eligible to be picked at all
 - Customisable colours, with an option to fill each spot's whole clickbox in its colour
@@ -85,13 +92,16 @@ Each reminder only ever shows up while you're actually wearing the
 aerial fishing) - it never nags you about Fishing/Hunter boosts while you're off doing
 something unrelated elsewhere in the game.
 
-Two independent display options, both on by default once a reminder is enabled:
+Three independent display options - Infobox and Highlight boost items are on by default once
+a reminder is enabled, Send chat message is off by default:
 
 - **Infobox** - pick a style: **Icon + boost margin** shows the usual small infobox with the
   skill's icon and your current boost margin (e.g. "+1"), with your custom text as its
   tooltip; **Custom text** shows a proper panel instead (an infobox that size isn't built to
   hold a sentence), with your custom text on the left and the boost margin on the right,
   both always visible with no hovering needed for either
+- **Send chat message** - sends your custom text as a chat message once, the exact moment
+  your boost crosses below the threshold (not repeated every tick while it stays low)
 - **Highlight boost items** - highlights anything in your inventory or worn that can
   reboost that skill, in a colour you choose
 

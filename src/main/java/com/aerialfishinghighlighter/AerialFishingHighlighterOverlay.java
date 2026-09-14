@@ -19,8 +19,11 @@ import net.runelite.client.ui.overlay.OverlayUtil;
 /**
  * Draws a highlight over the best aerial fishing spot to fish next (see
  * {@link AerialFishingHighlighterPlugin#getRankedSpots()}), optionally the 2nd/3rd best
- * too, and optionally a faint outline over every other tracked spot. Purely observational:
- * reads plugin/client state and paints on top of the scene, nothing else.
+ * too, and optionally a faint outline over every other tracked spot. A frenzied spot can
+ * also be forced to always render (hull plus any enabled text) even when it isn't one of
+ * the ranked picks - see {@link AerialFishingHighlighterConfig#alwaysShowFrenziedSpots}.
+ * Purely observational: reads plugin/client state and paints on top of the scene, nothing
+ * else.
  */
 public class AerialFishingHighlighterOverlay extends Overlay
 {
@@ -63,14 +66,23 @@ public class AerialFishingHighlighterOverlay extends Overlay
 		AerialFishingSpot second = config.highlightSecondBest() && ranked.size() > 1 ? ranked.get(1) : null;
 		AerialFishingSpot third = config.highlightThirdBest() && ranked.size() > 2 ? ranked.get(2) : null;
 
-		if (config.showOtherSpots())
+		for (AerialFishingSpot spot : plugin.getSpots())
 		{
-			for (AerialFishingSpot spot : plugin.getSpots())
+			if (spot == best || spot == second || spot == third)
 			{
-				if (spot != best && spot != second && spot != third)
-				{
-					renderHull(graphics, spot.getNpc(), config.otherSpotsColor());
-				}
+				continue;
+			}
+
+			if (spot.isFrenzied() && config.alwaysShowFrenziedSpots())
+			{
+				// Gets the same treatment as a ranked spot (hull plus any enabled
+				// ticks/timer text), just in the generic "other spots" colour, since it
+				// isn't actually one of the ranked picks.
+				renderRanked(graphics, spot, config.otherSpotsColor());
+			}
+			else if (config.showOtherSpots())
+			{
+				renderHull(graphics, spot.getNpc(), config.otherSpotsColor());
 			}
 		}
 
@@ -90,8 +102,9 @@ public class AerialFishingHighlighterOverlay extends Overlay
 
 		renderHull(graphics, spot.getNpc(), color);
 
+		boolean showLifespan = config.showLifespanText() || (spot.isFrenzied() && config.showFrenziedTimer());
 		String ticksText = config.showDistanceText() ? ticksLabel(spot) : null;
-		String lifespanText = config.showLifespanText() ? lifespanLabel(spot) : null;
+		String lifespanText = showLifespan ? lifespanLabel(spot) : null;
 		Color lifespanColor = lifespanColor(spot, color);
 
 		if (ticksText != null && lifespanText != null)
@@ -168,16 +181,23 @@ public class AerialFishingHighlighterOverlay extends Overlay
 	}
 
 	/**
-	 * Red once at least {@link AerialFishingHighlighterPlugin#MIN_LIFESPAN_TICKS} ticks
-	 * have elapsed since the spot spawned - the low end of the observed lifespan range, so
-	 * from that point on the spot could realistically have already despawned even though
-	 * it's still being tracked. {@code baseColor} is this spot's own rank colour (best/2nd/
-	 * 3rd), used as long as that warning doesn't apply.
+	 * For a regular spot, red once at least
+	 * {@link AerialFishingHighlighterPlugin#MIN_LIFESPAN_TICKS} ticks have elapsed - the low
+	 * end of the observed lifespan range, so from that point on the spot could realistically
+	 * have already despawned even though it's still being tracked. A frenzied spot's
+	 * lifespan is fixed rather than a range (see
+	 * {@link AerialFishingHighlighterPlugin#FRENZIED_LIFESPAN_TICKS}), so there's no earlier
+	 * "could already be gone" point to warn about - it only turns red once truly close to
+	 * that known expiry. {@code baseColor} is this spot's own rank colour (best/2nd/3rd),
+	 * used as long as neither warning applies.
 	 */
 	private Color lifespanColor(AerialFishingSpot spot, Color baseColor)
 	{
 		int elapsed = client.getTickCount() - spot.getSpawnTick();
-		return elapsed >= AerialFishingHighlighterPlugin.MIN_LIFESPAN_TICKS ? Color.RED : baseColor;
+		int warnAtElapsed = spot.isFrenzied()
+			? AerialFishingHighlighterPlugin.FRENZIED_LIFESPAN_TICKS - 2
+			: AerialFishingHighlighterPlugin.MIN_LIFESPAN_TICKS;
+		return elapsed >= warnAtElapsed ? Color.RED : baseColor;
 	}
 
 	/** @param pixelYOffset added to the computed canvas location's screen Y - negative moves the text up, positive moves it down. */

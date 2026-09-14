@@ -165,10 +165,32 @@ public interface AerialFishingHighlighterConfig extends Config
 		return false;
 	}
 
+	@ConfigItem(
+		position = 14,
+		keyName = "showFrenziedTimer",
+		name = "Show frenzied spot timer",
+		description = "Show a tick countdown on frenzied fishing spots specifically, based on their known 28-tick lifespan - unlike regular spots (10-19 ticks, randomised), a frenzied spot's lifespan is fixed, so this replaces the general estimated-time-left countdown for frenzied spots only when both are enabled"
+	)
+	default boolean showFrenziedTimer()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		position = 15,
+		keyName = "alwaysShowFrenziedSpots",
+		name = "Always show frenzied spots",
+		description = "Highlight every tracked frenzied fishing spot at all times (using the \"Other spots colour\" below), even when it isn't your best, 2nd, or 3rd best pick to catch from right now. Works regardless of \"Outline other spots\", and still shows its travel ticks/timer text if those are enabled"
+	)
+	default boolean alwaysShowFrenziedSpots()
+	{
+		return false;
+	}
+
 	@ConfigSection(
 		name = "Fishing reboost reminder",
 		description = "Reminds you to reboost Fishing when your current boost drops low",
-		position = 14,
+		position = 16,
 		closedByDefault = false
 	)
 	String fishingReboostSection = "fishingReboostSection";
@@ -258,10 +280,22 @@ public interface AerialFishingHighlighterConfig extends Config
 		return "Fishing boost is low - reboost!";
 	}
 
+	@ConfigItem(
+		position = 7,
+		keyName = "fishingReboostChatMessage",
+		name = "Send chat message",
+		description = "Send a chat message using the custom text above, once, the moment your Fishing boost drops below the threshold (not repeated every tick while it stays low)",
+		section = "fishingReboostSection"
+	)
+	default boolean fishingReboostChatMessage()
+	{
+		return false;
+	}
+
 	@ConfigSection(
 		name = "Hunter reboost reminder",
 		description = "Reminds you to reboost Hunter when your current boost drops low",
-		position = 15,
+		position = 17,
 		closedByDefault = false
 	)
 	String hunterReboostSection = "hunterReboostSection";
@@ -349,5 +383,17 @@ public interface AerialFishingHighlighterConfig extends Config
 	default String hunterReboostText()
 	{
 		return "Hunter boost is low - reboost!";
+	}
+
+	@ConfigItem(
+		position = 7,
+		keyName = "hunterReboostChatMessage",
+		name = "Send chat message",
+		description = "Send a chat message using the custom text above, once, the moment your Hunter boost drops below the threshold (not repeated every tick while it stays low)",
+		section = "hunterReboostSection"
+	)
+	default boolean hunterReboostChatMessage()
+	{
+		return false;
 	}
 }
