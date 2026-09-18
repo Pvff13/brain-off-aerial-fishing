@@ -187,10 +187,21 @@ public interface AerialFishingHighlighterConfig extends Config
 		return false;
 	}
 
+	@ConfigItem(
+		position = 16,
+		keyName = "showCatchRateInfobox",
+		name = "Show catches/hour panel",
+		description = "Show a draggable stats panel tracking how many fish you've caught per hour while aerial fishing. Counting itself always runs in the background while you're wearing the Cormorant's glove (regardless of this toggle) and resets when you log out, hop worlds, or disable the plugin - this only controls whether the panel is displayed"
+	)
+	default boolean showCatchRateInfobox()
+	{
+		return false;
+	}
+
 	@ConfigSection(
 		name = "Fishing reboost reminder",
 		description = "Reminds you to reboost Fishing when your current boost drops low",
-		position = 16,
+		position = 17,
 		closedByDefault = false
 	)
 	String fishingReboostSection = "fishingReboostSection";
@@ -295,7 +306,7 @@ public interface AerialFishingHighlighterConfig extends Config
 	@ConfigSection(
 		name = "Hunter reboost reminder",
 		description = "Reminds you to reboost Hunter when your current boost drops low",
-		position = 17,
+		position = 18,
 		closedByDefault = false
 	)
 	String hunterReboostSection = "hunterReboostSection";

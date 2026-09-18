@@ -45,6 +45,8 @@ It can also separately remind you to reboost Fishing and/or Hunter - see
 - Toggle for whether frenzied spots are eligible to be picked at all
 - Customisable colours, with an option to fill each spot's whole clickbox in its colour
   instead of just outlining it
+- Optional catches-per-hour stats panel - see [Catches-per-hour tracker](#catches-per-hour-tracker)
+  below
 
 ## Notes on tick timing
 
@@ -121,3 +123,19 @@ shares one item id, and the effect is a random +0-5 that can just as easily be a
 an inventory Spicy stew can't be identified as "a Fishing/Hunter booster"), and the
 "invisible" boosts from the Fishing Guild and Horn of Plenty (documented as only affecting
 success-rate rolls, never the visible boosted level this feature actually watches).
+
+## Catches-per-hour tracker
+
+An optional draggable stats panel with "Caught fish:" and "Fish/hr:" rows. Off by default.
+
+Catches are detected the same way RuneLite's own built-in Fishing plugin detects them - the
+chat message your cormorant sends back ("Your cormorant returns with its catch."), not an
+xp-based guess - so it's exact regardless of which fish (and therefore how much xp) it was.
+
+Counting itself always runs in the background while you're wearing the Cormorant's glove,
+regardless of whether the panel is currently shown - so turning the panel on mid-session
+immediately reflects the whole session rather than starting over from zero. The rate is
+measured from your *first* catch, not from whenever the glove went on, so standing around
+beforehand doesn't drag it down. Everything resets when you log out, hop worlds, disable the
+plugin, or - matching RuneLite's own built-in Fishing plugin - go 5 minutes without a catch,
+so the panel doesn't linger showing a rate that no longer reflects what you're doing.

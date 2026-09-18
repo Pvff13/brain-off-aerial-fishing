@@ -19,6 +19,7 @@ import net.runelite.api.Player;
 import net.runelite.api.Skill;
 import net.runelite.api.WorldView;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
@@ -64,6 +65,13 @@ import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
  * up while you're actually aerial fishing (wearing the Cormorant's glove - see
  * {@link #isWearingCormorantsGlove}), never while doing something unrelated elsewhere in
  * the game.
+ * <p>
+ * There's also an optional catches-per-hour stats panel (see
+ * {@link AerialFishingHighlighterConfig#showCatchRateInfobox} and
+ * {@link AerialFishingCatchRatePanelOverlay}) - it detects a catch the same way RuneLite's
+ * own built-in Fishing plugin does (see {@link #onChatMessage}), and rates it against
+ * elapsed time since the first catch this session, resetting on login/hop like everything
+ * else above.
  * <p>
  * Overlay-only: this plugin never clicks, moves the mouse, or interacts with anything. It
  * only subscribes to NPC/tick/game-state events and draws on top of the scene.
@@ -129,6 +137,22 @@ public class AerialFishingHighlighterPlugin extends Plugin
 	static final int CORMORANTS_GLOVE_NO_BIRD = 22816;
 	static final int CORMORANTS_GLOVE_BIRD = 22817;
 
+	/**
+	 * The exact chat line RuneLite's own built-in Fishing plugin matches (as one alternative
+	 * in its {@code FISHING_CATCH_REGEX}) to detect an aerial catch - see
+	 * {@link #onChatMessage}.
+	 */
+	static final String AERIAL_FISHING_CATCH_MESSAGE = "Your cormorant returns with its catch.";
+
+	/**
+	 * Same idea as RuneLite's own built-in Fishing plugin's configurable session timeout
+	 * ({@code FishingConfig.statTimeout}, checked every tick against time since the last
+	 * catch) - after 5 minutes with no catch, the catches-per-hour session is stale and
+	 * gets reset (see {@link #onGameTick}), rather than left showing a rate that no longer
+	 * reflects what you're currently doing.
+	 */
+	static final int CATCH_RATE_IDLE_TIMEOUT_TICKS = 500;
+
 	@Inject
 	private Client client;
 
@@ -146,6 +170,9 @@ public class AerialFishingHighlighterPlugin extends Plugin
 
 	@Inject
 	private AerialFishingBoostTextOverlay boostTextOverlay;
+
+	@Inject
+	private AerialFishingCatchRatePanelOverlay catchRatePanelOverlay;
 
 	@Inject
 	private AerialFishingHighlighterConfig config;
@@ -168,12 +195,32 @@ public class AerialFishingHighlighterPlugin extends Plugin
 	// low sends a fresh message rather than staying silent because it was "already needed".
 	private boolean fishingReboostNeededPrev;
 	private boolean hunterReboostNeededPrev;
-	private AerialFishingBoostInfoBox fishingBoostInfoBox;
-	private AerialFishingBoostInfoBox hunterBoostInfoBox;
+	private AerialFishingInfoBox fishingBoostInfoBox;
+	private AerialFishingInfoBox hunterBoostInfoBox;
+
+	// -1 means no catch observed yet this session - the rate is undefined until the first
+	// one, rather than measured from whenever the glove went on (dead time standing around
+	// before your first catch shouldn't count against your rate).
+	private int fishCaughtCount;
+	private int firstCatchTick = -1;
+	// Dedups the chat-message and Fishing-xp signals (see recordCatchIfAerialFishing) so a
+	// single catch that fires both never gets counted twice.
+	private int lastCatchTick = -1;
+	// -1 means "haven't seen a Fishing StatChanged yet this session". RuneLite fires one for
+	// every skill right at login purely to report your current xp from the server, not
+	// because anything actually changed - treating that synthetic event as a real gain (see
+	// onStatChanged) miscounted a catch before the player had caught anything. Tracking the
+	// actual xp value lets a genuine increase be told apart from that initial sync.
+	private int lastKnownFishingXp = -1;
 
 	Collection<AerialFishingSpot> getSpots()
 	{
 		return spots.values();
+	}
+
+	int getFishCaughtCount()
+	{
+		return fishCaughtCount;
 	}
 
 	boolean isFishingReboostNeeded()
@@ -198,11 +245,14 @@ public class AerialFishingHighlighterPlugin extends Plugin
 		overlayManager.add(overlay);
 		overlayManager.add(boostItemOverlay);
 		overlayManager.add(boostTextOverlay);
+		overlayManager.add(catchRatePanelOverlay);
 		spots.clear();
 		// Spots may already be sitting on Lake Molch from before the plugin was enabled -
 		// we can't know how long they've been there, so they're reconciled in on the next
 		// tick rather than assumed to have just spawned. See AerialFishingSpot's javadoc.
 		needsReconciliation = true;
+		resetCatchRateSession();
+		lastKnownFishingXp = -1;
 		refreshFishingReboost();
 		refreshHunterReboost();
 	}
@@ -213,6 +263,7 @@ public class AerialFishingHighlighterPlugin extends Plugin
 		overlayManager.remove(overlay);
 		overlayManager.remove(boostItemOverlay);
 		overlayManager.remove(boostTextOverlay);
+		overlayManager.remove(catchRatePanelOverlay);
 		spots.clear();
 		clearFishingBoostInfoBox();
 		clearHunterBoostInfoBox();
@@ -235,6 +286,8 @@ public class AerialFishingHighlighterPlugin extends Plugin
 			hunterReboostNeeded = false;
 			fishingReboostNeededPrev = false;
 			hunterReboostNeededPrev = false;
+			resetCatchRateSession();
+			lastKnownFishingXp = -1;
 		}
 		else if (state == GameState.LOGGED_IN)
 		{
@@ -262,6 +315,11 @@ public class AerialFishingHighlighterPlugin extends Plugin
 			reconcileExistingSpots();
 			needsReconciliation = false;
 		}
+
+		if (lastCatchTick != -1 && client.getTickCount() - lastCatchTick >= CATCH_RATE_IDLE_TIMEOUT_TICKS)
+		{
+			resetCatchRateSession();
+		}
 	}
 
 	@Subscribe
@@ -270,11 +328,51 @@ public class AerialFishingHighlighterPlugin extends Plugin
 		Skill skill = event.getSkill();
 		if (skill == Skill.FISHING)
 		{
+			// Belt-and-braces alongside onChatMessage below: a genuine xp gain while gloved
+			// is also a reliable "one catch happened" signal on its own, and catches the
+			// case where the exact chat line/type ever doesn't match (observed happening -
+			// see recordCatchIfAerialFishing's tick-based dedup for why this can't
+			// double-count against the chat message for the same catch).
+			//
+			// RuneLite fires one StatChanged per skill right at login purely to report your
+			// current xp from the server - not a real gain - so the very first one seen
+			// each session is recorded as the baseline and never itself counted as a catch;
+			// only a genuine increase past that baseline counts (see lastKnownFishingXp's
+			// field comment). Without this, logging in already wearing the glove miscounted
+			// that sync event as catch #1 before anything was actually caught.
+			int xp = event.getXp();
+			if (lastKnownFishingXp == -1)
+			{
+				lastKnownFishingXp = xp;
+			}
+			else if (xp > lastKnownFishingXp)
+			{
+				lastKnownFishingXp = xp;
+				recordCatchIfAerialFishing();
+			}
 			refreshFishingReboost();
 		}
 		else if (skill == Skill.HUNTER)
 		{
 			refreshHunterReboost();
+		}
+	}
+
+	/**
+	 * Mirrors the catch-detection signal RuneLite's own built-in Fishing plugin uses
+	 * ({@code FishingPlugin.onChatMessage} matches a {@link ChatMessageType#SPAM} message
+	 * against its aerial-specific catch line) - but checks message content only, not the
+	 * exact type or an exact full-string match, since a stricter version of this check was
+	 * observed not firing in practice (possibly a type or formatting difference this
+	 * plugin's isolated re-implementation doesn't reproduce exactly). {@link #onStatChanged}
+	 * above provides a second, independent signal for the same reason.
+	 */
+	@Subscribe
+	public void onChatMessage(ChatMessage event)
+	{
+		if (event.getMessage().contains(AERIAL_FISHING_CATCH_MESSAGE))
+		{
+			recordCatchIfAerialFishing();
 		}
 	}
 
@@ -357,7 +455,7 @@ public class AerialFishingHighlighterPlugin extends Plugin
 		{
 			if (fishingBoostInfoBox == null)
 			{
-				fishingBoostInfoBox = new AerialFishingBoostInfoBox(null, this,
+				fishingBoostInfoBox = new AerialFishingInfoBox(null, this,
 					() -> "+" + getFishingBoostMargin(), config::fishingReboostText);
 				infoBoxManager.addInfoBox(fishingBoostInfoBox);
 				spriteManager.getSpriteAsync(SpriteID.Staticons.FISHING, 0, fishingBoostInfoBox);
@@ -393,7 +491,7 @@ public class AerialFishingHighlighterPlugin extends Plugin
 		{
 			if (hunterBoostInfoBox == null)
 			{
-				hunterBoostInfoBox = new AerialFishingBoostInfoBox(null, this,
+				hunterBoostInfoBox = new AerialFishingInfoBox(null, this,
 					() -> "+" + getHunterBoostMargin(), config::hunterReboostText);
 				infoBoxManager.addInfoBox(hunterBoostInfoBox);
 				spriteManager.getSpriteAsync(SpriteID.Staticons2.HUNTER, 0, hunterBoostInfoBox);
@@ -431,6 +529,63 @@ public class AerialFishingHighlighterPlugin extends Plugin
 			infoBoxManager.removeInfoBox(hunterBoostInfoBox);
 			hunterBoostInfoBox = null;
 		}
+	}
+
+	/** Clears the catches-per-hour session - see {@link #CATCH_RATE_IDLE_TIMEOUT_TICKS} and every other reset point (login, hop, plugin disable). */
+	private void resetCatchRateSession()
+	{
+		fishCaughtCount = 0;
+		firstCatchTick = -1;
+		lastCatchTick = -1;
+	}
+
+	/**
+	 * Called once per confirmed aerial catch (see {@link #onChatMessage}). The
+	 * {@link #isWearingCormorantsGlove} check is just defence in depth, since that chat line
+	 * should never appear otherwise. Counting itself always runs regardless of
+	 * {@link AerialFishingHighlighterConfig#showCatchRateInfobox}, so the panel reflects the
+	 * whole session the moment it's turned on, rather than only catches made after enabling
+	 * display.
+	 */
+	private void recordCatchIfAerialFishing()
+	{
+		if (!isWearingCormorantsGlove())
+		{
+			return;
+		}
+
+		int currentTick = client.getTickCount();
+		if (currentTick == lastCatchTick)
+		{
+			// Already counted a catch this tick - the chat message and the Fishing xp gain
+			// for that same catch land on the same tick, so this is what stops them being
+			// counted as two catches.
+			return;
+		}
+		lastCatchTick = currentTick;
+
+		fishCaughtCount++;
+		if (firstCatchTick == -1)
+		{
+			firstCatchTick = currentTick;
+		}
+	}
+
+	/**
+	 * Estimated fish caught per hour this session, based on elapsed time since the first
+	 * catch rather than since the plugin/glove went on - dead time standing around before
+	 * your first catch shouldn't drag the rate down. 0 if nothing's been caught yet.
+	 */
+	double getCatchesPerHour()
+	{
+		if (firstCatchTick == -1)
+		{
+			return 0;
+		}
+
+		int elapsedTicks = Math.max(1, client.getTickCount() - firstCatchTick);
+		double elapsedHours = elapsedTicks * 0.6 / 3600.0;
+		return fishCaughtCount / elapsedHours;
 	}
 
 	/**
